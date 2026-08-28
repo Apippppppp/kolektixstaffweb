@@ -1,26 +1,17 @@
 <script setup>
 import { ref } from 'vue';
 
-// Navigation & state
-const currentView = ref('login'); // 'login' or 'register'
-const registerStep = ref(1); // 1, 2, or 3
-
-// Form inputs
-const email = ref('');
+// State variables
+const username = ref('');
 const password = ref('');
 const showPassword = ref(false);
+const loginError = ref('');
 
-// Register Step 1 inputs
-const eventName = ref('');
-const ownerName = ref('');
-
-// Register Step 2 inputs
-const location = ref('');
-const phone = ref('');
-
-// Register Step 3 inputs
-const registerEmail = ref('');
-const logoFile = ref(null);
+const registeredUsers = [
+  { username: 'staff1', password: 'password123', name: 'John Doe' },
+  { username: 'staff2', password: 'password123', name: 'Jane Smith' },
+  { username: 'kolektix', password: 'password123', name: 'Kolektix Scanner Staff' }
+];
 
 const togglePassword = () => {
   showPassword.value = !showPassword.value;
@@ -28,38 +19,17 @@ const togglePassword = () => {
 
 const emit = defineEmits(['login-success']);
 
-// Handlers
 const handleLogin = () => {
-  emit('login-success');
-};
+  loginError.value = '';
+  const user = registeredUsers.find(
+    u => u.username.toLowerCase() === username.value.toLowerCase().trim() && 
+         u.password === password.value
+  );
 
-const goToRegister = () => {
-  currentView.value = 'register';
-  registerStep.value = 1;
-};
-
-const goToLogin = () => {
-  currentView.value = 'login';
-};
-
-const nextStep = () => {
-  if (registerStep.value < 3) {
-    registerStep.value++;
+  if (user) {
+    emit('login-success', user.name);
   } else {
-    emit('login-success');
-  }
-};
-
-const prevStep = () => {
-  if (registerStep.value > 1) {
-    registerStep.value--;
-  }
-};
-
-const handleLogoUpload = (event) => {
-  const file = event.target.files[0];
-  if (file) {
-    logoFile.value = file.name;
+    loginError.value = 'Username atau password salah / belum terdaftar dari kreator!';
   }
 };
 </script>
@@ -73,31 +43,36 @@ const handleLogoUpload = (event) => {
       </div>
     </div>
 
-    <!-- Login Card Form (Unified) -->
+    <!-- Login Card Form -->
     <div class="login-card">
-      <h1 class="welcome-title">
-        {{ currentView === 'login' ? 'Welcome Back' : 'Daftar Akun Kreator' }}
-      </h1>
-      <p class="welcome-subtitle">Manage your events and attendees.</p>
+      <!-- Username/Password Login View -->
+      <div class="card-content-wrapper">
+        <h1 class="welcome-title">Staff Scanner Login</h1>
+        <p class="welcome-subtitle">Masukkan username dan password yang didaftarkan oleh Kreator Anda.</p>
 
-      <!-- Login View -->
-      <div v-if="currentView === 'login'" class="card-content-wrapper">
+        <!-- Simple Alert Text if not registered or incorrect -->
+        <div v-if="loginError" class="alert-box">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="alert-icon">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+          </svg>
+          <span>{{ loginError }}</span>
+        </div>
+
         <form @submit.prevent="handleLogin" class="form-container">
-          <!-- Email Field -->
+          <!-- Username Field -->
           <div class="input-group">
-            <label class="input-label">Email</label>
+            <label class="input-label">Username</label>
             <div class="input-wrapper">
               <input 
-                type="email" 
-                v-model="email" 
-                placeholder="creator@example.com" 
+                type="text" 
+                v-model="username" 
+                placeholder="Masukkan username" 
                 class="form-input"
                 required
               />
               <span class="input-icon-right">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="icon-svg-filled">
-                  <path d="M1.5 8.67v8.58a3 3 0 0 0 3 3h15a3 3 0 0 0 3-3V8.67l-8.928 5.493a1.35 1.35 0 0 1-1.428 0L1.5 8.67Z" />
-                  <path d="M22.5 6.908V6.75a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3v.158l9.714 5.978a1.5 1.5 0 0 0 1.572 0L22.5 6.908Z" />
+                  <path fill-rule="evenodd" d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z" clip-rule="evenodd" />
                 </svg>
               </span>
             </div>
@@ -110,7 +85,7 @@ const handleLogoUpload = (event) => {
               <input 
                 :type="showPassword ? 'text' : 'password'" 
                 v-model="password" 
-                placeholder="Masukkan Password" 
+                placeholder="Masukkan password" 
                 class="form-input"
                 required
               />
@@ -129,169 +104,15 @@ const handleLogoUpload = (event) => {
           </button>
         </form>
 
-        <!-- Register Link -->
-        <div class="register-container">
-          Belum punya akun? <a href="#" @click.prevent="goToRegister" class="register-link">Daftar Creator</a>
-        </div>
-
-        <!-- Footer Terms -->
-        <div class="terms-footer">
-          Dengan masuk, Anda menyetujui <br />
-          <a href="#" class="terms-link">Syarat & Ketentuan</a> Kolektix.
+        <div style="font-size: 11px; color: #888; text-align: center; margin-top: 10px;">
+          Hint Akun: <b>staff1</b> / <b>password123</b>
         </div>
       </div>
 
-      <!-- Register View -->
-      <div v-else class="card-content-wrapper">
-        <!-- Stepper Header -->
-        <div class="stepper">
-          <div class="step-wrapper">
-            <div class="step-circle" :class="{ active: registerStep >= 1 }">1</div>
-          </div>
-          <div class="step-line" :class="{ active: registerStep >= 2 }"></div>
-          <div class="step-wrapper">
-            <div class="step-circle" :class="{ active: registerStep >= 2 }">2</div>
-          </div>
-          <div class="step-line" :class="{ active: registerStep >= 3 }"></div>
-          <div class="step-wrapper">
-            <div class="step-circle" :class="{ active: registerStep >= 3 }">3</div>
-          </div>
-        </div>
-
-        <!-- Step 1 Form -->
-        <div v-if="registerStep === 1" class="step-content">
-          <form @submit.prevent="nextStep" class="form-container">
-            <div class="input-group">
-              <label class="input-label">Nama Penyelenggara Event</label>
-              <div class="input-wrapper">
-                <input 
-                  type="text" 
-                  v-model="eventName" 
-                  placeholder="Misal: javamusikindo" 
-                  class="form-input"
-                  required
-                />
-              </div>
-            </div>
-
-            <div class="input-group">
-              <label class="input-label">Nama Pemilik</label>
-              <div class="input-wrapper">
-                <input 
-                  type="text" 
-                  v-model="ownerName" 
-                  placeholder="Masukan Nama Pemilik" 
-                  class="form-input"
-                  required
-                />
-              </div>
-            </div>
-
-            <button type="submit" class="submit-btn" :disabled="!eventName || !ownerName">
-              <span>Selanjutnya</span>
-            </button>
-          </form>
-
-          <div class="register-container">
-            Sudah punya akun? <a href="#" @click.prevent="goToLogin" class="register-link">Masuk</a>
-          </div>
-        </div>
-
-        <!-- Step 2 Form -->
-        <div v-else-if="registerStep === 2" class="step-content">
-          <form @submit.prevent="nextStep" class="form-container">
-            <div class="input-group">
-              <label class="input-label">Lokasi / Kota Asal</label>
-              <div class="input-wrapper">
-                <input 
-                  type="text" 
-                  v-model="location" 
-                  placeholder="Misalnya Jakarta" 
-                  class="form-input"
-                  required
-                />
-              </div>
-            </div>
-
-            <div class="input-group">
-              <label class="input-label">No. Telepon / Handphone</label>
-              <div class="input-wrapper">
-                <input 
-                  type="tel" 
-                  v-model="phone" 
-                  placeholder="Contoh: 08123456789" 
-                  class="form-input"
-                  required
-                />
-              </div>
-            </div>
-
-            <div class="btn-row">
-              <button type="button" @click="prevStep" class="back-btn">
-                <span>Kembali</span>
-              </button>
-              <button type="submit" class="submit-btn flex-1" :disabled="!location || !phone">
-                <span>Selanjutnya</span>
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <!-- Step 3 Form -->
-        <div v-else-if="registerStep === 3" class="step-content">
-          <form @submit.prevent="nextStep" class="form-container">
-            <!-- Logo Upload Box -->
-            <div class="input-group">
-              <label class="input-label">Logo Creator</label>
-              <label class="upload-area">
-                <input type="file" accept="image/*" @change="handleLogoUpload" class="hidden-file-input" />
-                <div class="upload-placeholder">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="upload-icon">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
-                  </svg>
-                  <span class="upload-text">
-                    {{ logoFile ? `Terpilih: ${logoFile}` : 'Unggah logo creator (Max 2MB)' }}
-                  </span>
-                </div>
-              </label>
-            </div>
-
-            <!-- Email Field -->
-            <div class="input-group">
-              <label class="input-label">Email</label>
-              <div class="input-wrapper">
-                <input 
-                  type="email" 
-                  v-model="registerEmail" 
-                  placeholder="Contoh: johndoe@gmail.com" 
-                  class="form-input"
-                  required
-                />
-                <span class="input-icon-right">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="icon-svg-filled">
-                    <path d="M1.5 8.67v8.58a3 3 0 0 0 3 3h15a3 3 0 0 0 3-3V8.67l-8.928 5.493a1.35 1.35 0 0 1-1.428 0L1.5 8.67Z" />
-                    <path d="M22.5 6.908V6.75a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3v.158l9.714 5.978a1.5 1.5 0 0 0 1.572 0L22.5 6.908Z" />
-                  </svg>
-                </span>
-              </div>
-            </div>
-
-            <div class="btn-row">
-              <button type="button" @click="prevStep" class="back-btn">
-                <span>Kembali</span>
-              </button>
-              <button type="submit" class="submit-btn flex-1" :disabled="!registerEmail">
-                <span>Selanjutnya</span>
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <!-- Footer Terms -->
-        <div class="terms-footer">
-          Dengan masuk, Anda menyetujui <br />
-          <a href="#" class="terms-link">Syarat & Ketentuan</a> Kolektix.
-        </div>
+      <!-- Footer Terms -->
+      <div class="terms-footer">
+        Dengan masuk, Anda menyetujui <br />
+        <a href="#" class="terms-link">Syarat & Ketentuan</a> Kolektix.
       </div>
     </div>
   </div>
@@ -360,68 +181,41 @@ const handleLogoUpload = (event) => {
 }
 
 .welcome-title {
-  font-family: var(--font-serif);
-  font-size: 24px;
+  font-family: var(--font-poppins);
+  font-size: 20px;
   font-weight: 700;
   color: var(--dark);
   margin-bottom: 4px;
 }
 
 .welcome-subtitle {
-  font-family: var(--font-serif);
-  font-size: 13px;
+  font-family: var(--font-poppins);
+  font-size: 12px;
   color: var(--dark-grey);
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+  line-height: 1.4;
 }
 
-/* Stepper Component styling */
-.stepper {
+/* Simple Alert Warning Block */
+.alert-box {
+  background-color: #fee2e2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 500;
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-bottom: 32px;
-  padding: 0 16px;
+  gap: 8px;
+  margin-bottom: 18px;
+  line-height: 1.4;
 }
 
-.step-wrapper {
-  position: relative;
-  z-index: 2;
-}
-
-.step-circle {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background-color: var(--white);
-  border: 1px solid var(--grey);
-  color: var(--grey);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-
-.step-circle.active {
-  background-color: var(--primary-base);
-  border-color: var(--primary-base);
-  color: var(--white);
-  box-shadow: 0 0 0 4px rgba(25, 78, 158, 0.15);
-}
-
-.step-line {
-  flex-grow: 1;
-  height: 2px;
-  background-color: var(--light-grey);
-  margin: 0 -4px;
-  position: relative;
-  z-index: 1;
-  transition: background-color 0.3s;
-}
-
-.step-line.active {
-  background-color: var(--primary-base);
+.alert-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 /* Form layouts */
@@ -482,56 +276,17 @@ const handleLogoUpload = (event) => {
   transition: border-color 0.2s;
 }
 
+.form-input.text-center {
+  text-align: center;
+  padding: 8px 0;
+}
+
 .form-input::placeholder {
   color: #b0b0b5;
 }
 
 .form-input:focus {
   border-color: var(--primary-base);
-}
-
-/* Dash upload area for step 3 */
-.upload-area {
-  border: 1.5px dashed var(--dark);
-  border-radius: 12px;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  background-color: transparent;
-  transition: background-color 0.2s;
-  margin-top: 4px;
-  height: 120px;
-}
-
-.upload-area:hover {
-  background-color: var(--primary-light);
-}
-
-.hidden-file-input {
-  display: none;
-}
-
-.upload-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  color: var(--primary-base);
-}
-
-.upload-icon {
-  width: 32px;
-  height: 32px;
-}
-
-.upload-text {
-  font-size: 12px;
-  color: var(--dark-grey);
-  text-align: center;
-  font-weight: 500;
 }
 
 /* Buttons Styling */
@@ -552,17 +307,8 @@ const handleLogoUpload = (event) => {
   margin-top: 8px;
 }
 
-.submit-btn:disabled {
-  background-color: var(--primary-disabled);
-  cursor: not-allowed;
-}
-
-.submit-btn:hover:not(:disabled) {
+.submit-btn:hover {
   background-color: var(--primary-light-700);
-}
-
-.submit-btn:active:not(:disabled) {
-  background-color: var(--primary-light-800);
 }
 
 .btn-row {
@@ -591,25 +337,6 @@ const handleLogoUpload = (event) => {
 
 .flex-1 {
   flex: 1;
-}
-
-/* Register Link Container */
-.register-container {
-  text-align: center;
-  font-size: 13px;
-  color: var(--dark-grey);
-  margin-top: 12px;
-  font-family: var(--font-sans);
-}
-
-.register-link {
-  color: var(--primary-base);
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.register-link:hover {
-  text-decoration: underline;
 }
 
 /* Footer Section */
