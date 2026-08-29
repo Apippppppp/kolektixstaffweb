@@ -156,12 +156,8 @@ const scanQRCode = () => {
     if (code) {
       const qrData = code.data;
       
-      let status = 'success';
-      if (qrData.toLowerCase().includes('gagal') || qrData.toLowerCase().includes('fail')) {
-        status = 'failed';
-      } else if (qrData.toLowerCase().includes('sudah') || qrData.toLowerCase().includes('used')) {
-        status = 'already';
-      }
+      const statuses = ['success', 'failed', 'already'];
+      const status = statuses[Math.floor(Math.random() * statuses.length)];
       
       triggerScan(status);
       scanData.value.ticketType = `Scanned QR (#${qrData.substring(0, 12).toUpperCase()})`;
@@ -260,12 +256,8 @@ const handleManualCheckin = () => {
   const code = manualTicketCode.value.trim();
   if (!code) return;
   
-  let status = 'success';
-  if (code.toLowerCase().includes('gagal') || code.toLowerCase().includes('fail')) {
-    status = 'failed';
-  } else if (code.toLowerCase().includes('sudah') || code.toLowerCase().includes('used')) {
-    status = 'already';
-  }
+  const statuses = ['success', 'failed', 'already'];
+  const status = statuses[Math.floor(Math.random() * statuses.length)];
   
   triggerScan(status);
   scanData.value.ticketType = `Manual Input (#${code.toUpperCase()})`;
@@ -392,9 +384,12 @@ onBeforeUnmount(() => {
       <!-- Sliding Notification Popups -->
       <transition name="popup-slide">
         <div v-if="scanPopupVisible" class="notification-popup-card">
-          <div class="notification-header" :class="scanResultStatus">
+          <div class="notification-header" :class="scanResultStatus === 'success' ? (isConfirmed ? 'success' : 'pending') : scanResultStatus">
             <div class="header-icon">
-              <svg v-if="scanResultStatus === 'success'" viewBox="0 0 20 20" fill="currentColor" class="status-svg">
+              <svg v-if="scanResultStatus === 'success' && !isConfirmed" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="status-svg">
+                <path fill-rule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 6a.75.75 0 00-1.5 0v6c0 .414.336.75.75.75h4.5a.75.75 0 000-1.5h-3.75V6z" clip-rule="evenodd" />
+              </svg>
+              <svg v-else-if="scanResultStatus === 'success' && isConfirmed" viewBox="0 0 20 20" fill="currentColor" class="status-svg">
                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd"/>
               </svg>
               <svg v-else-if="scanResultStatus === 'failed'" viewBox="0 0 20 20" fill="currentColor" class="status-svg">
@@ -927,7 +922,7 @@ onBeforeUnmount(() => {
 /* Sliding Notification Card */
 .notification-popup-card {
   position: absolute;
-  bottom: 16px;
+  bottom: 80px;
   left: 16px;
   right: 16px;
   background-color: white;
@@ -948,6 +943,11 @@ onBeforeUnmount(() => {
 .notification-header.success {
   background-color: #d1fae5;
   color: #065f46;
+}
+
+.notification-header.pending {
+  background-color: #dbeafe;
+  color: #1e40af;
 }
 
 .notification-header.failed {
