@@ -38,40 +38,33 @@ const scanPopupVisible = ref(false);
 const isConfirmed = ref(false);
 const scanResultStatus = ref('success'); // 'success', 'failed', 'already'
 const scanData = ref({
+  invoice: 'INV-88419',
   name: 'Ahmad Fauzi',
-  ticketType: 'Presale Regular (#TKT-8841)',
+  ticketType: 'E-Ticket',
   time: ''
 });
 
 let popupTimer = null;
 
-const triggerScan = (status) => {
+const triggerScan = (status, rawData = null) => {
   scanResultStatus.value = status;
   isConfirmed.value = false;
   scanPopupVisible.value = true;
   
   const tType = ticketCategory.value === 'invitation' ? 'Invitation' : 'E-Ticket';
-  const tCode = Math.floor(1000 + Math.random() * 9000);
+  const tCode = rawData ? rawData.substring(0, 10).toUpperCase() : `INV-${Math.floor(10000 + Math.random() * 90000)}`;
 
-  if (status === 'failed') {
-    scanData.value = {
-      name: 'Tidak Terdaftar',
-      ticketType: 'Ticket Invalid/Gagal (#TKT-ERR)',
-      time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
-    };
-  } else if (status === 'already') {
-    scanData.value = {
-      name: 'Ahmad Fauzi',
-      ticketType: `${tType} (#TKT-${tCode})`,
-      time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
-    };
-  } else {
-    scanData.value = {
-      name: 'Ahmad Fauzi',
-      ticketType: `${tType} (#TKT-${tCode})`,
-      time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
-    };
-  }
+  const names = ['Ahmad Fauzi', 'Budi Santoso', 'Citra Kirana', 'Dewi Lestari', 'Eko Prasetyo', 'Fina Melati'];
+  let sum = 0;
+  for(let i=0; i<tCode.length; i++) sum += tCode.charCodeAt(i);
+  const buyerName = names[sum % names.length];
+
+  scanData.value = {
+    invoice: tCode,
+    name: status === 'failed' ? 'Tidak Terdaftar' : buyerName,
+    ticketType: tType,
+    time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
+  };
   
   if (popupTimer) clearTimeout(popupTimer);
   popupTimer = setTimeout(() => {
@@ -83,8 +76,8 @@ const closePopup = () => {
   scanPopupVisible.value = false;
   if (popupTimer) clearTimeout(popupTimer);
   if (!isManualMode()) {
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
-    animationFrameId = requestAnimationFrame(scanQRCode);
+    if (animationFrameId) clearTimeout(animationFrameId);
+    animationFrameId = setTimeout(scanQRCode, 100);
   }
 };
 
@@ -143,24 +136,28 @@ const scanQRCode = () => {
   if (videoElement.value && videoElement.value.readyState === videoElement.value.HAVE_ENOUGH_DATA) {
     if (!canvasElement) {
       canvasElement = document.createElement('canvas');
-      canvasCtx = canvasElement.getContext('2d');
+      canvasCtx = canvasElement.getContext('2d', { willReadFrequently: true });
     }
     canvasElement.width = videoElement.value.videoWidth;
     canvasElement.height = videoElement.value.videoHeight;
     canvasCtx.drawImage(videoElement.value, 0, 0, canvasElement.width, canvasElement.height);
     const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
     const code = window.jsQR ? window.jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'dontInvert'
+      inversionAttempts: 'attemptBoth'
     }) : null;
     
     if (code) {
       const qrData = code.data;
       
       const statuses = ['success', 'failed', 'already'];
-      const status = statuses[Math.floor(Math.random() * statuses.length)];
+      let hash = 0;
+      for (let i = 0; i < qrData.length; i++) {
+        hash = qrData.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const statusIndex = Math.abs(hash) % statuses.length;
+      const status = statuses[statusIndex];
       
-      triggerScan(status);
-      scanData.value.ticketType = `Scanned QR (#${qrData.substring(0, 12).toUpperCase()})`;
+      triggerScan(status, qrData);
       
       if (navigator.vibrate) {
         navigator.vibrate(200);
@@ -170,7 +167,7 @@ const scanQRCode = () => {
   }
   
   if (checkinMode.value === 'qr' && !scanPopupVisible.value) {
-    animationFrameId = requestAnimationFrame(scanQRCode);
+    animationFrameId = setTimeout(scanQRCode, 100);
   }
 };
 
@@ -184,8 +181,8 @@ const startCamera = async () => {
     if (videoElement.value) {
       videoElement.value.srcObject = stream;
       videoStream = stream;
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
-      animationFrameId = requestAnimationFrame(scanQRCode);
+      if (animationFrameId) clearTimeout(animationFrameId);
+      animationFrameId = setTimeout(scanQRCode, 100);
     }
   } catch (err) {
     console.error("Camera access blocked or error:", err);
@@ -201,7 +198,7 @@ const retryCamera = () => {
 const stopCamera = () => {
   cameraErrorPopupVisible.value = false;
   if (animationFrameId) {
-    cancelAnimationFrame(animationFrameId);
+    clearTimeout(animationFrameId);
     animationFrameId = null;
   }
   if (videoStream) {
@@ -245,7 +242,6 @@ const handleViewfinderTap = () => {
   const statuses = ['success', 'failed', 'already'];
   const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
   triggerScan(randomStatus);
-  scanData.value.ticketType = `Simulated Tap (#TKT-${Math.floor(1000 + Math.random() * 9000)})`;
   if (navigator.vibrate) {
     navigator.vibrate(200);
   }
@@ -257,10 +253,14 @@ const handleManualCheckin = () => {
   if (!code) return;
   
   const statuses = ['success', 'failed', 'already'];
-  const status = statuses[Math.floor(Math.random() * statuses.length)];
+  let hash = 0;
+  for (let i = 0; i < code.length; i++) {
+    hash = code.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const statusIndex = Math.abs(hash) % statuses.length;
+  const status = statuses[statusIndex];
   
-  triggerScan(status);
-  scanData.value.ticketType = `Manual Input (#${code.toUpperCase()})`;
+  triggerScan(status, code);
   manualTicketCode.value = '';
   if (navigator.vibrate) {
     navigator.vibrate(200);
@@ -406,12 +406,11 @@ onBeforeUnmount(() => {
 
           <div class="notification-body">
             <div class="attendee-row">
-              <div class="attendee-avatar">
-                {{ scanData.name.split(' ').map(n => n[0]).join('') }}
-              </div>
               <div class="attendee-info">
-                <h4>{{ scanData.name }}</h4>
-                <p>{{ scanData.ticketType }}</p>
+                <p class="event-name">{{ selectedEvent ? selectedEvent.title : 'Event Kolektix' }}</p>
+                <h4 class="invoice-text">{{ scanData.invoice }}</h4>
+                <p class="buyer-name">{{ scanData.name }}</p>
+                <p class="ticket-type-label">{{ scanData.ticketType }}</p>
               </div>
             </div>
 
@@ -421,7 +420,7 @@ onBeforeUnmount(() => {
                 <span class="time-val">{{ scanData.time || 'Baru Saja' }}</span>
               </div>
               <button class="continue-btn" @click="confirmCheckin">
-                {{ (scanResultStatus === 'success' && !isConfirmed) ? 'Konfirmasi' : 'Lanjut Scan' }}
+                {{ scanResultStatus === 'success' && !isConfirmed ? 'Konfirmasi' : (scanResultStatus === 'failed' ? 'Coba Lagi' : 'Lanjut Scan') }}
               </button>
             </div>
           </div>
@@ -976,46 +975,55 @@ onBeforeUnmount(() => {
 }
 
 .notification-body {
-  padding: 14px 16px;
+  padding: 20px 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .attendee-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  width: 100%;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.attendee-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background-color: #f1f5f9;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 700;
+.event-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1e293b;
+  margin: 0 0 6px 0;
+}
+
+.attendee-info {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.attendee-info h4 {
-  font-size: 13px;
+.invoice-text {
+  font-size: 16px;
   font-weight: 700;
+  margin: 0;
+  color: #0f172a;
+}
+
+.buyer-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #0f172a;
   margin: 0;
 }
 
-.attendee-info p {
-  font-size: 10px;
-  color: #64748b;
-  margin: 2px 0 0 0;
+.ticket-type-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #0f172a;
+  margin: 0;
 }
 
 .scan-time-row {
-  border-top: 1px dashed #e2e8f0;
-  padding-top: 10px;
   display: flex;
   justify-content: space-between;
   align-items: center;
