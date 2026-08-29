@@ -1,6 +1,5 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
-import { Html5Qrcode } from 'html5-qrcode';
 
 const props = defineProps({
   events: {
@@ -36,8 +35,8 @@ onMounted(() => {
 
 // Scan Results Popup Notification state
 const scanPopupVisible = ref(false);
-const scanResultStatus = ref('success'); // 'success', 'failed', 'already'
 const isConfirmed = ref(false);
+const scanResultStatus = ref('success'); // 'success', 'failed', 'already'
 const scanData = ref({
   name: 'Ahmad Fauzi',
   ticketType: 'Presale Regular (#TKT-8841)',
@@ -46,13 +45,13 @@ const scanData = ref({
 
 let popupTimer = null;
 
-const triggerScan = (status, scannedText = null) => {
+const triggerScan = (status) => {
   scanResultStatus.value = status;
-  scanPopupVisible.value = true;
   isConfirmed.value = false;
+  scanPopupVisible.value = true;
   
   const tType = ticketCategory.value === 'invitation' ? 'Invitation' : 'E-Ticket';
-  const tCode = scannedText ? scannedText.substring(0, 12).toUpperCase() : Math.floor(1000 + Math.random() * 9000);
+  const tCode = Math.floor(1000 + Math.random() * 9000);
 
   if (status === 'failed') {
     scanData.value = {
@@ -77,9 +76,6 @@ const triggerScan = (status, scannedText = null) => {
   if (popupTimer) clearTimeout(popupTimer);
   popupTimer = setTimeout(() => {
     scanPopupVisible.value = false;
-    if (html5QrCode && html5QrCode.getState() === 2) {
-      html5QrCode.resume();
-    }
   }, 15000);
 };
 
@@ -87,30 +83,30 @@ const closePopup = () => {
   scanPopupVisible.value = false;
   if (popupTimer) clearTimeout(popupTimer);
   if (!isManualMode()) {
-    if (html5QrCode && html5QrCode.getState() === 2) {
-      html5QrCode.resume();
-    }
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    animationFrameId = requestAnimationFrame(scanQRCode);
   }
 };
 
 const confirmCheckin = () => {
-  if (scanResultStatus.value === 'success') {
+  if (scanResultStatus.value === 'success' && !isConfirmed.value) {
     isConfirmed.value = true;
     const activeEv = props.selectedEvent || currentEvent.value;
     if (activeEv && activeEv.sold < activeEv.total) {
       activeEv.sold++;
     }
     if (popupTimer) clearTimeout(popupTimer);
-    setTimeout(() => {
+    popupTimer = setTimeout(() => {
       closePopup();
-    }, 1500);
+    }, 15000);
   } else {
     closePopup();
   }
 };
 
 // Camera Scanner View State
-let html5QrCode = null;
+const videoElement = ref(null);
+let videoStream = null;
 const checkinMode = ref('qr'); // 'qr' | 'manual'
 const ticketCategory = ref('e-ticket'); // 'e-ticket' | 'invitation'
 const manualTicketCode = ref('');
@@ -119,46 +115,82 @@ const manualTicketCode = ref('');
 const isManualMode = () => checkinMode.value === 'manual';
 const isQRMode = () => checkinMode.value !== 'manual';
 
-const cameraErrorPopupVisible = ref(false);
+// jsQR dynamic script loader
+let jsScriptLoaded = false;
+const loadJsQR = () => {
+  return new Promise((resolve, reject) => {
+    if (window.jsQR || jsScriptLoaded) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+    script.onload = () => {
+      jsScriptLoaded = true;
+      resolve();
+    };
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+};
 
-const onScanSuccess = (decodedText) => {
-  if (html5QrCode && html5QrCode.getState() === 2) { // State 2 = SCANNING
-    html5QrCode.pause(true); // Pause scanning, keep video stream active
+const cameraErrorPopupVisible = ref(false);
+let canvasElement = null;
+let canvasCtx = null;
+let animationFrameId = null;
+
+const scanQRCode = () => {
+  if (videoElement.value && videoElement.value.readyState === videoElement.value.HAVE_ENOUGH_DATA) {
+    if (!canvasElement) {
+      canvasElement = document.createElement('canvas');
+      canvasCtx = canvasElement.getContext('2d');
+    }
+    canvasElement.width = videoElement.value.videoWidth;
+    canvasElement.height = videoElement.value.videoHeight;
+    canvasCtx.drawImage(videoElement.value, 0, 0, canvasElement.width, canvasElement.height);
+    const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
+    const code = window.jsQR ? window.jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: 'dontInvert'
+    }) : null;
+    
+    if (code) {
+      const qrData = code.data;
+      
+      let status = 'success';
+      if (qrData.toLowerCase().includes('gagal') || qrData.toLowerCase().includes('fail')) {
+        status = 'failed';
+      } else if (qrData.toLowerCase().includes('sudah') || qrData.toLowerCase().includes('used')) {
+        status = 'already';
+      }
+      
+      triggerScan(status);
+      scanData.value.ticketType = `Scanned QR (#${qrData.substring(0, 12).toUpperCase()})`;
+      
+      if (navigator.vibrate) {
+        navigator.vibrate(200);
+      }
+      return;
+    }
   }
   
-  let status = 'success';
-  if (decodedText.toLowerCase().includes('gagal') || decodedText.toLowerCase().includes('fail')) {
-    status = 'failed';
-  } else if (decodedText.toLowerCase().includes('sudah') || decodedText.toLowerCase().includes('used')) {
-    status = 'already';
-  }
-  
-  triggerScan(status, decodedText);
-  if (navigator.vibrate) {
-    navigator.vibrate(200);
+  if (checkinMode.value === 'qr' && !scanPopupVisible.value) {
+    animationFrameId = requestAnimationFrame(scanQRCode);
   }
 };
 
 const startCamera = async () => {
-  cameraErrorPopupVisible.value = false;
   try {
-    if (!html5QrCode) {
-      html5QrCode = new Html5Qrcode("qr-reader");
+    cameraErrorPopupVisible.value = false;
+    await loadJsQR();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+    if (videoElement.value) {
+      videoElement.value.srcObject = stream;
+      videoStream = stream;
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      animationFrameId = requestAnimationFrame(scanQRCode);
     }
-    
-    if (html5QrCode.isScanning) return;
-    
-    await html5QrCode.start(
-      { facingMode: "environment" },
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 }
-      },
-      onScanSuccess,
-      (errorMessage) => {
-        // Parse error, safe to ignore during continuous scanning
-      }
-    );
   } catch (err) {
     console.error("Camera access blocked or error:", err);
     cameraErrorPopupVisible.value = true;
@@ -172,25 +204,32 @@ const retryCamera = () => {
 
 const stopCamera = () => {
   cameraErrorPopupVisible.value = false;
-  if (html5QrCode && html5QrCode.isScanning) {
-    html5QrCode.stop().then(() => {
-      // Stopped successfully
-    }).catch(err => {
-      console.warn("Failed to stop html5qrcode", err);
-    });
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+  if (videoStream) {
+    videoStream.getTracks().forEach(track => track.stop());
+    videoStream = null;
+  }
+  if (videoElement.value) {
+    videoElement.value.srcObject = null;
   }
 };
 
 // Flashlight toggle control
 const isFlashlightOn = ref(false);
 watch(isFlashlightOn, async (on) => {
-  if (html5QrCode && html5QrCode.isScanning && isQRMode()) {
-    try {
-      await html5QrCode.applyVideoConstraints({
-        advanced: [{ torch: on }]
-      });
-    } catch (err) {
-      console.warn("Torch / Flashlight not supported on this device/browser constraints:", err);
+  if (videoStream && isQRMode()) {
+    const track = videoStream.getVideoTracks()[0];
+    if (track) {
+      try {
+        await track.applyConstraints({
+          advanced: [{ torch: on }]
+        });
+      } catch (err) {
+        console.warn("Torch / Flashlight not supported on this device/browser constraints:", err);
+      }
     }
   }
 });
@@ -209,13 +248,8 @@ watch(checkinMode, (newMode) => {
 const handleViewfinderTap = () => {
   const statuses = ['success', 'failed', 'already'];
   const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
-  const dummyCode = 'TKT-' + Math.floor(1000 + Math.random() * 9000);
-  
-  if (html5QrCode && html5QrCode.getState() === 2) {
-    html5QrCode.pause(true);
-  }
-  
-  triggerScan(randomStatus, dummyCode);
+  triggerScan(randomStatus);
+  scanData.value.ticketType = `Simulated Tap (#TKT-${Math.floor(1000 + Math.random() * 9000)})`;
   if (navigator.vibrate) {
     navigator.vibrate(200);
   }
@@ -233,7 +267,7 @@ const handleManualCheckin = () => {
     status = 'already';
   }
   
-  triggerScan(status, code);
+  triggerScan(status);
   scanData.value.ticketType = `Manual Input (#${code.toUpperCase()})`;
   manualTicketCode.value = '';
   if (navigator.vibrate) {
@@ -243,9 +277,6 @@ const handleManualCheckin = () => {
 
 onBeforeUnmount(() => {
   stopCamera();
-  if (html5QrCode) {
-    html5QrCode.clear();
-  }
 });
 </script>
 
@@ -253,7 +284,7 @@ onBeforeUnmount(() => {
   <div class="scanner-page">
     <div class="scanner-fullscreen-container" :class="{ 'manual-bg': checkinMode === 'manual' }">
       <!-- Real Camera Feed Video Element -->
-      <div id="qr-reader" v-show="isQRMode()" class="scanner-camera-feed"></div>
+      <video v-show="isQRMode()" ref="videoElement" autoplay playsinline class="scanner-camera-feed"></video>
       
       <!-- Scanner Top Bar -->
       <div class="scanner-top-bar">
@@ -395,7 +426,7 @@ onBeforeUnmount(() => {
                 <span class="time-val">{{ scanData.time || 'Baru Saja' }}</span>
               </div>
               <button class="continue-btn" @click="confirmCheckin">
-                {{ scanResultStatus === 'success' ? 'Konfirmasi' : 'Lanjut Scan' }}
+                {{ (scanResultStatus === 'success' && !isConfirmed) ? 'Konfirmasi' : 'Lanjut Scan' }}
               </button>
             </div>
           </div>
@@ -469,12 +500,6 @@ onBeforeUnmount(() => {
   height: 100%;
   object-fit: cover;
   z-index: 1;
-}
-
-#qr-reader video {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
 }
 
 .scanner-overlay-dark {
