@@ -2,8 +2,8 @@
 import { ref } from 'vue';
 
 // State variables
-const username = ref('');
-const password = ref('');
+const username = ref('staff1');
+const password = ref('password123');
 const showPassword = ref(false);
 const loginError = ref('');
 

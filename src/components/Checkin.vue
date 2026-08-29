@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { Html5Qrcode } from 'html5-qrcode';
 
 const props = defineProps({
   events: {
@@ -36,6 +37,7 @@ onMounted(() => {
 // Scan Results Popup Notification state
 const scanPopupVisible = ref(false);
 const scanResultStatus = ref('success'); // 'success', 'failed', 'already'
+const isConfirmed = ref(false);
 const scanData = ref({
   name: 'Ahmad Fauzi',
   ticketType: 'Presale Regular (#TKT-8841)',
@@ -44,12 +46,13 @@ const scanData = ref({
 
 let popupTimer = null;
 
-const triggerScan = (status) => {
+const triggerScan = (status, scannedText = null) => {
   scanResultStatus.value = status;
   scanPopupVisible.value = true;
+  isConfirmed.value = false;
   
-  const tType = checkinMode.value === 'invitation' ? 'Invitation' : 'Reguler';
-  const tCode = Math.floor(1000 + Math.random() * 9000);
+  const tType = ticketCategory.value === 'invitation' ? 'Invitation' : 'E-Ticket';
+  const tCode = scannedText ? scannedText.substring(0, 12).toUpperCase() : Math.floor(1000 + Math.random() * 9000);
 
   if (status === 'failed') {
     scanData.value = {
@@ -69,114 +72,93 @@ const triggerScan = (status) => {
       ticketType: `${tType} (#TKT-${tCode})`,
       time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
     };
-    // Increment sold/checked in count for demo simulation
-    const activeEv = props.selectedEvent || currentEvent.value;
-    if (activeEv && activeEv.sold < activeEv.total) {
-      activeEv.sold++;
-    }
   }
   
   if (popupTimer) clearTimeout(popupTimer);
   popupTimer = setTimeout(() => {
     scanPopupVisible.value = false;
-  }, 5000);
+    if (html5QrCode && html5QrCode.getState() === 2) {
+      html5QrCode.resume();
+    }
+  }, 15000);
 };
 
 const closePopup = () => {
   scanPopupVisible.value = false;
   if (popupTimer) clearTimeout(popupTimer);
   if (!isManualMode()) {
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
-    animationFrameId = requestAnimationFrame(scanQRCode);
+    if (html5QrCode && html5QrCode.getState() === 2) {
+      html5QrCode.resume();
+    }
+  }
+};
+
+const confirmCheckin = () => {
+  if (scanResultStatus.value === 'success') {
+    isConfirmed.value = true;
+    const activeEv = props.selectedEvent || currentEvent.value;
+    if (activeEv && activeEv.sold < activeEv.total) {
+      activeEv.sold++;
+    }
+    if (popupTimer) clearTimeout(popupTimer);
+    setTimeout(() => {
+      closePopup();
+    }, 1500);
+  } else {
+    closePopup();
   }
 };
 
 // Camera Scanner View State
-const videoElement = ref(null);
-let videoStream = null;
-const checkinMode = ref('regular'); // 'regular' | 'invitation' | 'manual'
+let html5QrCode = null;
+const checkinMode = ref('qr'); // 'qr' | 'manual'
+const ticketCategory = ref('e-ticket'); // 'e-ticket' | 'invitation'
 const manualTicketCode = ref('');
 
 // Derive ticket category from mode
 const isManualMode = () => checkinMode.value === 'manual';
 const isQRMode = () => checkinMode.value !== 'manual';
 
-// jsQR dynamic script loader
-let jsScriptLoaded = false;
-const loadJsQR = () => {
-  return new Promise((resolve, reject) => {
-    if (window.jsQR || jsScriptLoaded) {
-      resolve();
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
-    script.onload = () => {
-      jsScriptLoaded = true;
-      resolve();
-    };
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-};
-
 const cameraErrorPopupVisible = ref(false);
-let canvasElement = null;
-let canvasCtx = null;
-let animationFrameId = null;
 
-const scanQRCode = () => {
-  if (videoElement.value && videoElement.value.readyState === videoElement.value.HAVE_ENOUGH_DATA) {
-    if (!canvasElement) {
-      canvasElement = document.createElement('canvas');
-      canvasCtx = canvasElement.getContext('2d');
-    }
-    canvasElement.width = videoElement.value.videoWidth;
-    canvasElement.height = videoElement.value.videoHeight;
-    canvasCtx.drawImage(videoElement.value, 0, 0, canvasElement.width, canvasElement.height);
-    const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
-    const code = window.jsQR ? window.jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'dontInvert'
-    }) : null;
-    
-    if (code) {
-      const qrData = code.data;
-      
-      let status = 'success';
-      if (qrData.toLowerCase().includes('gagal') || qrData.toLowerCase().includes('fail')) {
-        status = 'failed';
-      } else if (qrData.toLowerCase().includes('sudah') || qrData.toLowerCase().includes('used')) {
-        status = 'already';
-      }
-      
-      triggerScan(status);
-      scanData.value.ticketType = `Scanned QR (#${qrData.substring(0, 12).toUpperCase()})`;
-      
-      if (navigator.vibrate) {
-        navigator.vibrate(200);
-      }
-      return;
-    }
+const onScanSuccess = (decodedText) => {
+  if (html5QrCode && html5QrCode.getState() === 2) { // State 2 = SCANNING
+    html5QrCode.pause(true); // Pause scanning, keep video stream active
   }
   
-  if (checkinMode.value === 'qr' && !scanPopupVisible.value) {
-    animationFrameId = requestAnimationFrame(scanQRCode);
+  let status = 'success';
+  if (decodedText.toLowerCase().includes('gagal') || decodedText.toLowerCase().includes('fail')) {
+    status = 'failed';
+  } else if (decodedText.toLowerCase().includes('sudah') || decodedText.toLowerCase().includes('used')) {
+    status = 'already';
+  }
+  
+  triggerScan(status, decodedText);
+  if (navigator.vibrate) {
+    navigator.vibrate(200);
   }
 };
 
 const startCamera = async () => {
+  cameraErrorPopupVisible.value = false;
   try {
-    cameraErrorPopupVisible.value = false;
-    await loadJsQR();
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }
-    });
-    if (videoElement.value) {
-      videoElement.value.srcObject = stream;
-      videoStream = stream;
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
-      animationFrameId = requestAnimationFrame(scanQRCode);
+    if (!html5QrCode) {
+      html5QrCode = new Html5Qrcode("qr-reader");
     }
+    
+    if (html5QrCode.isScanning) return;
+    
+    await html5QrCode.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 }
+      },
+      onScanSuccess,
+      (errorMessage) => {
+        // Parse error, safe to ignore during continuous scanning
+      }
+    );
   } catch (err) {
     console.error("Camera access blocked or error:", err);
     cameraErrorPopupVisible.value = true;
@@ -190,32 +172,25 @@ const retryCamera = () => {
 
 const stopCamera = () => {
   cameraErrorPopupVisible.value = false;
-  if (animationFrameId) {
-    cancelAnimationFrame(animationFrameId);
-    animationFrameId = null;
-  }
-  if (videoStream) {
-    videoStream.getTracks().forEach(track => track.stop());
-    videoStream = null;
-  }
-  if (videoElement.value) {
-    videoElement.value.srcObject = null;
+  if (html5QrCode && html5QrCode.isScanning) {
+    html5QrCode.stop().then(() => {
+      // Stopped successfully
+    }).catch(err => {
+      console.warn("Failed to stop html5qrcode", err);
+    });
   }
 };
 
 // Flashlight toggle control
 const isFlashlightOn = ref(false);
 watch(isFlashlightOn, async (on) => {
-  if (videoStream && isQRMode()) {
-    const track = videoStream.getVideoTracks()[0];
-    if (track) {
-      try {
-        await track.applyConstraints({
-          advanced: [{ torch: on }]
-        });
-      } catch (err) {
-        console.warn("Torch / Flashlight not supported on this device/browser constraints:", err);
-      }
+  if (html5QrCode && html5QrCode.isScanning && isQRMode()) {
+    try {
+      await html5QrCode.applyVideoConstraints({
+        advanced: [{ torch: on }]
+      });
+    } catch (err) {
+      console.warn("Torch / Flashlight not supported on this device/browser constraints:", err);
     }
   }
 });
@@ -234,8 +209,13 @@ watch(checkinMode, (newMode) => {
 const handleViewfinderTap = () => {
   const statuses = ['success', 'failed', 'already'];
   const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
-  triggerScan(randomStatus);
-  scanData.value.ticketType = `Simulated Tap (#TKT-${Math.floor(1000 + Math.random() * 9000)})`;
+  const dummyCode = 'TKT-' + Math.floor(1000 + Math.random() * 9000);
+  
+  if (html5QrCode && html5QrCode.getState() === 2) {
+    html5QrCode.pause(true);
+  }
+  
+  triggerScan(randomStatus, dummyCode);
   if (navigator.vibrate) {
     navigator.vibrate(200);
   }
@@ -253,7 +233,7 @@ const handleManualCheckin = () => {
     status = 'already';
   }
   
-  triggerScan(status);
+  triggerScan(status, code);
   scanData.value.ticketType = `Manual Input (#${code.toUpperCase()})`;
   manualTicketCode.value = '';
   if (navigator.vibrate) {
@@ -263,6 +243,9 @@ const handleManualCheckin = () => {
 
 onBeforeUnmount(() => {
   stopCamera();
+  if (html5QrCode) {
+    html5QrCode.clear();
+  }
 });
 </script>
 
@@ -270,8 +253,7 @@ onBeforeUnmount(() => {
   <div class="scanner-page">
     <div class="scanner-fullscreen-container" :class="{ 'manual-bg': checkinMode === 'manual' }">
       <!-- Real Camera Feed Video Element -->
-      <video v-show="isQRMode()" ref="videoElement" autoplay playsinline class="scanner-camera-feed"></video>
-      <div v-show="isQRMode()" class="scanner-overlay-dark"></div>
+      <div id="qr-reader" v-show="isQRMode()" class="scanner-camera-feed"></div>
       
       <!-- Scanner Top Bar -->
       <div class="scanner-top-bar">
@@ -289,11 +271,11 @@ onBeforeUnmount(() => {
 
         <div class="scanner-header-title">
           <div class="marquee-wrap">
-            <span class="marquee-track" :class="{ 'marquee-animate': (selectedEvent ? selectedEvent.title : 'All Event').length > 18 }">
-              {{ selectedEvent ? selectedEvent.title : 'All Event' }}
-              <template v-if="(selectedEvent ? selectedEvent.title : 'All Event').length > 18">
+            <span class="marquee-track" :class="{ 'marquee-animate': ((selectedEvent ? selectedEvent.title : 'All Event') + ' - ' + (ticketCategory === 'invitation' ? 'Invitation' : 'E-Ticket')).length > 18 }">
+              {{ selectedEvent ? selectedEvent.title : 'All Event' }} - {{ ticketCategory === 'invitation' ? 'Invitation' : 'E-Ticket' }}
+              <template v-if="((selectedEvent ? selectedEvent.title : 'All Event') + ' - ' + (ticketCategory === 'invitation' ? 'Invitation' : 'E-Ticket')).length > 18">
                 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                {{ selectedEvent ? selectedEvent.title : 'All Event' }}
+                {{ selectedEvent ? selectedEvent.title : 'All Event' }} - {{ ticketCategory === 'invitation' ? 'Invitation' : 'E-Ticket' }}
               </template>
             </span>
           </div>
@@ -308,19 +290,16 @@ onBeforeUnmount(() => {
           </svg>
         </button>
         <!-- Spacer when flash hidden (manual mode) to keep title centered -->
-        <div v-show="!isQRMode()" style="width:36px;"></div>
+        <div v-show="!isQRMode()" style="width:40px;"></div>
       </div>
       
       <!-- Check-in Mode Selector Tab Toggle -->
       <div class="checkin-mode-toggle">
-        <button class="toggle-btn" :class="{ active: checkinMode === 'regular' }" @click="checkinMode = 'regular'">
-          Reguler
-        </button>
-        <button class="toggle-btn" :class="{ active: checkinMode === 'invitation' }" @click="checkinMode = 'invitation'">
-          Invitation
+        <button class="toggle-btn" :class="{ active: checkinMode === 'qr' }" @click="checkinMode = 'qr'">
+          Scan-QR
         </button>
         <button class="toggle-btn" :class="{ active: checkinMode === 'manual' }" @click="checkinMode = 'manual'">
-          Manual
+          Scanner
         </button>
       </div>
       
@@ -328,12 +307,8 @@ onBeforeUnmount(() => {
       <div class="scanner-body">
         <!-- Scanning Window Area (QR Mode: Reguler & Invitation) -->
         <div v-if="isQRMode()" class="scanner-viewfinder" @click="handleViewfinderTap">
-          <div class="viewfinder-bracket top-left"></div>
-          <div class="viewfinder-bracket top-right"></div>
-          <div class="viewfinder-bracket bottom-left"></div>
-          <div class="viewfinder-bracket bottom-right"></div>
+          <div class="scanner-laser-trail"></div>
           <div class="scanner-laser-line"></div>
-          <div class="scanner-tap-hint">Ketuk kotak untuk simulasi scan</div>
         </div>
         
         <!-- Manual Input Card (Manual Mode) -->
@@ -359,6 +334,14 @@ onBeforeUnmount(() => {
               <span>💡 <strong>Tips Simulasi:</strong> Ketik kata "gagal" untuk simulasi gagal, atau "sudah" untuk simulasi tiket terpakai.</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Ticket Category Bottom Bar -->
+      <div class="ticket-category-bar">
+        <div class="category-buttons-row">
+          <button class="sheet-category-btn" :class="{ active: ticketCategory === 'e-ticket' }" @click="ticketCategory = 'e-ticket'">E-Ticket</button>
+          <button class="sheet-category-btn" :class="{ active: ticketCategory === 'invitation' }" @click="ticketCategory = 'invitation'">Invitation</button>
         </div>
       </div>
 
@@ -391,7 +374,7 @@ onBeforeUnmount(() => {
               </svg>
             </div>
             <span class="header-text">
-              {{ scanResultStatus === 'success' ? 'BERHASIL SCAN' : (scanResultStatus === 'failed' ? 'GAGAL SCAN' : 'SUDAH CHECK-IN') }}
+              {{ scanResultStatus === 'success' ? (isConfirmed ? 'BERHASIL CHECK-IN' : 'MENUNGGU KONFIRMASI') : (scanResultStatus === 'failed' ? 'GAGAL SCAN' : 'SUDAH CHECK-IN') }}
             </span>
           </div>
 
@@ -411,8 +394,8 @@ onBeforeUnmount(() => {
                 <span class="time-label">WAKTU MASUK</span>
                 <span class="time-val">{{ scanData.time || 'Baru Saja' }}</span>
               </div>
-              <button class="continue-btn" @click="closePopup">
-                Lanjut Scan
+              <button class="continue-btn" @click="confirmCheckin">
+                {{ scanResultStatus === 'success' ? 'Konfirmasi' : 'Lanjut Scan' }}
               </button>
             </div>
           </div>
@@ -434,7 +417,7 @@ onBeforeUnmount(() => {
             <p class="error-card-desc">Gagal mengakses kamera perangkat. Pastikan izin kamera telah diberikan atau coba gunakan input kode manual sebagai gantinya.</p>
             <div class="error-action-row">
               <button class="continue-btn" @click="retryCamera">Coba Lagi</button>
-              <button class="continue-btn manual-switch-btn" @click="checkinMode = 'regular'; cameraErrorPopupVisible = false;">Input Manual</button>
+              <button class="continue-btn manual-switch-btn" @click="checkinMode = 'qr'; cameraErrorPopupVisible = false;">Input Manual</button>
             </div>
           </div>
         </div>
@@ -488,6 +471,12 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
+#qr-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
 .scanner-overlay-dark {
   position: absolute;
   top: 0;
@@ -501,7 +490,7 @@ onBeforeUnmount(() => {
 
 .scanner-top-bar {
   position: relative;
-  z-index: 3;
+  z-index: 5;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -554,8 +543,8 @@ onBeforeUnmount(() => {
 }
 
 .scanner-icon-btn {
-  background-color: rgba(255, 255, 255, 0.2);
-  border: 2px solid transparent;
+  background-color: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 50%;
   color: white;
   width: 36px;
@@ -568,14 +557,32 @@ onBeforeUnmount(() => {
   transition: background-color 0.2s, border-color 0.2s;
 }
 
+.close-btn {
+  width: 34px;
+  height: 34px;
+}
+.close-btn .scanner-svg-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.flash-btn {
+  width: 30px;
+  height: 30px;
+}
+.flash-btn .scanner-svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .close-btn.manual-mode {
-  background-color: rgba(25, 78, 158, 0.25);
+  background-color: rgba(25, 78, 158, 0.4);
   border-color: #194E9E;
 }
 
 .scanner-svg-icon {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .checkin-mode-toggle {
@@ -609,87 +616,81 @@ onBeforeUnmount(() => {
 }
 
 .scanner-viewfinder {
-  position: relative;
-  z-index: 3;
-  width: 200px;
-  height: 200px;
-  margin: auto;
-  border: 1.5px solid rgba(255, 255, 255, 0.3);
-  border-radius: 16px;
-  box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.55);
-  transform: translateY(-30px);
-}
-
-.viewfinder-bracket {
   position: absolute;
-  width: 24px;
-  height: 24px;
-  border-color: #194E9E;
-  border-style: solid;
+  top: -140px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 100%;
+  height: calc(100% + 140px);
   pointer-events: none;
-}
-
-.top-left {
-  top: -2px;
-  left: -2px;
-  border-width: 4px 0 0 4px;
-  border-top-left-radius: 12px;
-}
-
-.top-right {
-  top: -2px;
-  right: -2px;
-  border-width: 4px 4px 0 0;
-  border-top-right-radius: 12px;
-}
-
-.bottom-left {
-  bottom: -2px;
-  left: -2px;
-  border-width: 0 0 4px 4px;
-  border-bottom-left-radius: 12px;
-}
-
-.bottom-right {
-  bottom: -2px;
-  right: -2px;
-  border-width: 0 4px 4px 0;
-  border-bottom-right-radius: 12px;
 }
 
 .scanner-laser-line {
   position: absolute;
-  left: 10px;
-  right: 10px;
-  height: 3px;
+  left: 0;
+  right: 0;
+  height: 4px;
   background-color: #194E9E;
-  box-shadow: 0 0 8px #194E9E;
-  animation: scan-laser 2s infinite alternate;
+  border-radius: 50%;
+  box-shadow: 0 0 15px 4px rgba(25, 78, 158, 0.9);
+  animation: scan-laser 3s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95);
+  z-index: 2;
+}
+
+.scanner-laser-trail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 400px;
+  background: linear-gradient(
+    to bottom,
+    rgba(25, 78, 158, 0) 0%,
+    rgba(25, 78, 158, 0.6) 100%
+  );
+  animation: 
+    scan-laser 3s infinite alternate cubic-bezier(0.45, 0.05, 0.55, 0.95),
+    scan-flip 6s infinite step-end,
+    scan-opacity 6s infinite ease-in-out;
+  z-index: 1;
 }
 
 @keyframes scan-laser {
-  0% { top: 15px; }
-  100% { top: 185px; }
+  0% { top: 0%; }
+  100% { top: 100%; }
 }
 
-.scanner-tap-hint {
-  position: absolute;
-  bottom: -32px;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font-size: 10px;
-  color: rgba(255,255,255,0.7);
+@keyframes scan-flip {
+  0% { transform: translateY(-100%) scaleY(1); }
+  50% { transform: translateY(0%) scaleY(-1); }
+  100% { transform: translateY(-100%) scaleY(1); }
 }
 
+@keyframes scan-opacity {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  40% { opacity: 1; }
+  50% { opacity: 0; }
+  60% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { opacity: 0; }
+}
 /* Manual mode bg and details */
 .scanner-fullscreen-container.manual-bg {
   background-color: #f8fafc;
   color: #1e293b;
 }
 
+.scanner-fullscreen-container.manual-bg .scanner-header-title h3,
+.scanner-fullscreen-container.manual-bg .marquee-track {
+  color: #1e293b;
+  text-shadow: none;
+}
+
 .scanner-fullscreen-container.manual-bg .scanner-header-title p {
   color: #64748b;
+  text-shadow: none;
 }
 
 .scanner-fullscreen-container.manual-bg .scanner-top-bar {
@@ -778,15 +779,13 @@ onBeforeUnmount(() => {
   line-height: 1.4;
 }
 
-/* Bottom stats bar */
 .scanner-bottom-stats {
   position: absolute;
-  bottom: 0;
+  bottom: 55px;
   left: 0;
   right: 0;
   z-index: 3;
-  padding: 24px 20px 32px 20px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.95), transparent);
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -839,6 +838,65 @@ onBeforeUnmount(() => {
   height: 100%;
   background-color: #194E9E;
   border-radius: 10px;
+}
+
+/* Ticket Category Bar */
+.ticket-category-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  background-color: #ffffff;
+  padding: 8px 16px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.category-buttons-row {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+}
+
+.sheet-category-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: white;
+  border: 1px solid #194E9E;
+  color: #194E9E;
+  padding: 8px 0;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sheet-category-btn.active {
+  border-color: #194E9E;
+  background-color: #194E9E;
+  color: white;
+}
+
+/* Scanner (Manual) mode inversion */
+.scanner-fullscreen-container.manual-bg .ticket-category-bar {
+  background-color: #194E9E;
+}
+
+.scanner-fullscreen-container.manual-bg .sheet-category-btn {
+  background-color: #194E9E;
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+.scanner-fullscreen-container.manual-bg .sheet-category-btn.active {
+  background-color: white;
+  color: #194E9E;
+  border-color: white;
 }
 
 /* Sliding Notification Card */
